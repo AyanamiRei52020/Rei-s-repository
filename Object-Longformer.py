@@ -332,7 +332,7 @@ def validate(model, dataloader, device):
 def train(model, dataloader, optimizer, alpha_optimizers, span_optimizers, scheduler, alpha_schedulers, span_schedulers,
           epoch, device, name, lmbda=0.00001, grad_clip=1, start_time=0, scaler=None, save_checkpoint_interval=5):
     model.train()
-    log_dir = "C:\\Users\\27369\\PycharmProjects\\graduate\\log\\"
+    log_dir = "path"
     log_dir = os.path.join(log_dir, f"{name}\\")
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)  # 确保日志目录存在
@@ -341,7 +341,7 @@ def train(model, dataloader, optimizer, alpha_optimizers, span_optimizers, sched
     log_file = os.path.join(log_dir, f"{name}_{epoch}_train_log.txt")
     alpha_span_log_file = os.path.join(log_dir, f"{name}_{epoch}_alpha_span_log.txt")
 
-    temp_directory = 'C:\\Users\\27369\\PycharmProjects\\graduate\\model\\temp\\'
+    temp_directory = 'path'
     temp_directory= os.path.join(temp_directory, f"{epoch}\\")
     if not os.path.exists(temp_directory):  # 检查目录是否存在
         os.makedirs(temp_directory)
@@ -487,7 +487,7 @@ def find_model_files(base_path):
 
 
 def print_model_files():
-    base_path = "C:\\Users\\27369\\PycharmProjects\\graduate\\model\\"
+    base_path = "path"
     pt_files, onnx_files = find_model_files(base_path)
 
     print("Found .pt files:")
@@ -519,9 +519,8 @@ def main():
             return
     elif choice == '2':
         print("Initializing a new model")
-        tokenizer = AutoTokenizer.from_pretrained("C:\\Users\\27369\\PycharmProjects\\graduate\\tokenizer\\")
-        config = LongformerConfig.from_pretrained("C:\\Users\\27369\\PycharmProjects\\graduate\\tokenizer\\",
-                                                  vocab_size=tokenizer.vocab_size)
+        tokenizer = AutoTokenizer.from_pretrained("path")
+        config = LongformerConfig.from_pretrained("path",vocab_size=tokenizer.vocab_size)
         config.num_hidden_layers = 32
         config.hidden_size = 768
         config.num_attention_heads = 8
@@ -540,7 +539,7 @@ def main():
     # 选择数据集加载方式
     loading_method, train_args, val_args = choose_dataset_loading_method()
 
-    tokenizer = AutoTokenizer.from_pretrained("C:\\Users\\27369\\PycharmProjects\\graduate\\tokenizer\\")
+    tokenizer = AutoTokenizer.from_pretrained("path")
 
     if loading_method == "huggingface":
         train_dataset_name, train_split = train_args
@@ -625,7 +624,7 @@ def main():
 
     writer.close()  # 关闭 TensorBoard
 
-    pt_directory = 'C:\\Users\\27369\\PycharmProjects\\graduate\\model\\.pt\\'
+    pt_directory = 'path'
     if not os.path.exists(pt_directory):  # 检查目录是否存在
         os.makedirs(pt_directory)  # 如果不存在则创建
 
