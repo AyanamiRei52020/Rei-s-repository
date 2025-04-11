@@ -111,7 +111,6 @@ class MixAdaptiveAttention(nn.Module):
 
     def forward(self,
                 hidden_states,            # [batch, seq_len, dim]
-                attention_mask=None,      # HF 会传进来
                 output_attentions=False,  # HF 会传进来
                 **kwargs):                # 捕获其他可能的参数
         # 训练时 clamp span
@@ -139,14 +138,14 @@ class CustomXLformer(nn.Module):
         self.config = config
 
         # 按层替换 self-attention，并取出对应的 attention_window
-        for idx, layer in enumerate(self.TransfoXLModel.encoder.layer):
+        for idx, layer in enumerate(self.TransfoXLModel.layers):
             # 如果 attention_window 是 list，就用第 idx 个；否则当作单个整数
             if isinstance(config.attention_window, (list, tuple)):
                 window_size = config.attention_window[idx]
             else:
                 window_size = config.attention_window
 
-            layer.attention.self = MixAdaptiveAttention(
+            layer.dec_attn.self = MixAdaptiveAttention(
                 embed_dim            = config.hidden_size,
                 num_heads            = config.num_attention_heads,
                 attention_window     = window_size,
@@ -155,13 +154,13 @@ class CustomXLformer(nn.Module):
 
         self.linear = nn.Linear(config.hidden_size, config.vocab_size)
 
-    def forward(self, input_ids, attention_mask):
+    def forward(self, input_ids,):
         if self.training:
             # clamp span 参数
-            for layer in self.lTransfoXLModel.encoder.layer:
-                layer.attention.self.adaptive_span.clamp_param()
+            for layer in self.TransfoXLModel.layers:
+                layer.dec_attn.self.adaptive_span.clamp_param()
 
-        outputs = self.TransfoXLModel(input_ids, attention_mask=attention_mask)
+        outputs = self.TransfoXLModel(input_ids)
         logits   = self.linear(outputs.last_hidden_state)
         return logits
 
@@ -246,24 +245,22 @@ class TextDataset(Dataset):
         )
 
         input_ids = encodings.input_ids.squeeze()
-        attention_mask = encodings.attention_mask.squeeze()
 
         # 设置一个占位符标签，替换为你的真实标签逻辑
         label = input_ids.clone()
         label[:-1] = input_ids[1:]
         label[-1] = -100  # 忽略最后一个位置
-        return input_ids, attention_mask, label
+        return input_ids, label
 
 def collate_fn(batch):
     # 过滤掉 None
     batch = [b for b in batch if b is not None]
-    # batch: List[ (input_ids, attention_mask, label) ]
-    input_ids, attention_masks, labels = zip(*batch)
+    # batch: List[ (input_ids, label) ]
+    input_ids,  labels = zip(*batch)
     # 每个都是 tuple of tensors，转成 [B, ...] 的大 tensor
     input_ids      = torch.stack(input_ids, dim=0)
-    attention_masks= torch.stack(attention_masks, dim=0)
     labels         = torch.stack(labels, dim=0)
-    return input_ids, attention_masks, labels
+    return input_ids,  labels
 
 
 def initialize_weights(m):
@@ -322,9 +319,9 @@ def validate(model, dataloader, device):
     model.eval()
     total_loss = 0.0
     with torch.no_grad():
-        for input_ids, attention_mask, labels in dataloader:
-            input_ids, attention_mask, labels = input_ids.to(device), attention_mask.to(device), labels.to(device)
-            outputs = model(input_ids, attention_mask=attention_mask)
+        for input_ids,  labels in dataloader:
+            input_ids,  labels = input_ids.to(device), labels.to(device)
+            outputs = model(input_ids)
             if len(labels.shape) == 1:
                 labels = labels.unsqueeze(1).expand(-1, outputs.size(1))
 
@@ -337,7 +334,7 @@ def validate(model, dataloader, device):
 def train(model, dataloader, optimizer, alpha_optimizers, span_optimizers, scheduler, alpha_schedulers, span_schedulers,
           epoch, device, name, lmbda=0.00001, grad_clip=1, start_time=0, scaler=None, save_checkpoint_interval=5):
     model.train()
-    log_dir = "C:\\Users\\27369\\PycharmProjects\\graduate\\log\\"
+    log_dir = "path"
     log_dir = os.path.join(log_dir, f"{name}\\")
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)  # 确保日志目录存在
@@ -346,7 +343,7 @@ def train(model, dataloader, optimizer, alpha_optimizers, span_optimizers, sched
     log_file = os.path.join(log_dir, f"{name}_{epoch}_train_log.txt")
     alpha_span_log_file = os.path.join(log_dir, f"{name}_{epoch}_alpha_span_log.txt")
 
-    temp_directory = 'C:\\Users\\27369\\PycharmProjects\\graduate\\model\\temp\\'
+    temp_directory = 'path'
     temp_directory= os.path.join(temp_directory, f"{epoch}\\")
     if not os.path.exists(temp_directory):  # 检查目录是否存在
         os.makedirs(temp_directory)
@@ -354,8 +351,8 @@ def train(model, dataloader, optimizer, alpha_optimizers, span_optimizers, sched
 
     total_loss = 0
 
-    for batch_idx, (input_ids, attention_mask, labels) in enumerate(dataloader):
-        input_ids, attention_mask, labels = input_ids.to(device), attention_mask.to(device), labels.to(device)
+    for batch_idx, (input_ids, labels) in enumerate(dataloader):
+        input_ids, labels = input_ids.to(device), labels.to(device)
         optimizer.zero_grad()
         for alpha_optimizer in alpha_optimizers:
             alpha_optimizer.zero_grad()
@@ -363,7 +360,7 @@ def train(model, dataloader, optimizer, alpha_optimizers, span_optimizers, sched
             span_optimizer.zero_grad()
 
         with autocast():
-            outputs = model(input_ids, attention_mask=attention_mask)
+            outputs = model(input_ids)
             if len(labels.shape) == 1:
                 labels = labels.unsqueeze(1).expand(-1, outputs.size(1))
 
@@ -525,18 +522,19 @@ def main():
             return
     elif choice == '2':
         print("Initializing a new model")
-        tokenizer = AutoTokenizer.from_pretrained("transfo-xl/transfo-xl-wt103")
+        tokenizer = AutoTokenizer.from_pretrained("path")
+        tokenizer.pad_token = tokenizer.eos_token
         config = TransfoXLConfig(vocab_size=tokenizer.vocab_size)
         config.num_hidden_layers = 32
         config.hidden_size = 768
         config.num_attention_heads = 8
         config.attention_window = [512] * config.num_hidden_layers
         adaptive_span_config = {
-            'attn_span': config.max_position_embeddings,
+            'attn_span': 512,
             'adapt_span_ramp': 128,
             'adapt_span_loss': 0.1
         }
-        model = TransfoXLModel(config,adaptive_span_config)
+        model = CustomXLformer(config,adaptive_span_config)
 
         model.apply(initialize_weights)
     else:
@@ -597,9 +595,9 @@ def main():
 
     optimizer = AdamW([p for n, p in model.named_parameters() if 'alpha' not in n and 'adaptive_span' not in n], lr=0.0001)
     attn_modules = [
-        layer.attention.self
-        for layer in model.TransfoXLModel.encoder.layer
-        if isinstance(layer.attention.self, MixAdaptiveAttention)
+        layer.dec_attn.self
+        for layer in model.TransfoXLModel.layers
+        if isinstance(layer.dec_attn.self, MixAdaptiveAttention)
     ]
     alpha_optimizers = [
         AdamW([attn.alpha], lr=0.1)
@@ -632,7 +630,7 @@ def main():
 
     writer.close()  # 关闭 TensorBoard
 
-    pt_directory = 'C:\\Users\\27369\\PycharmProjects\\graduate\\model\\.pt\\'
+    pt_directory = 'path'
     if not os.path.exists(pt_directory):  # 检查目录是否存在
         os.makedirs(pt_directory)  # 如果不存在则创建
 
@@ -658,3 +656,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
